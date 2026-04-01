@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Modal
+.modal/
+
+# Results (large files)
+results/warmup/
+*.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
