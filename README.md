@@ -35,11 +35,16 @@ Run discovered triggers through both models with greedy decoding and compare the
 ## Repository Structure
 
 ```
-dormant-trigger-finder/
+backdoor-challenge/
 ├── find_trigger.py           # Main optimization: soft prompt + GCG
 ├── hidden_state_analysis.py  # Per-layer divergence analysis
 ├── brute_force_scan.py       # Vocabulary scanning
 ├── run_warmup.py             # Quick-start for warmup model
+├── modal_gcg.py              # Modal app for Qwen warmup model
+├── modal_deepseek.py         # Modal app for DeepSeek models
+├── results/
+│   ├── warmup/              # Warmup (Qwen) results
+│   └── deepseek/            # DeepSeek model results
 ├── requirements.txt
 └── README.md
 ```
@@ -51,6 +56,7 @@ dormant-trigger-finder/
 - Python 3.10+
 - GPU with ≥16GB VRAM (for 4-bit quantized), ≥32GB (for BF16)
 - CUDA 11.8+
+- Modal.com account for cloud GPU execution
 
 ### Install
 
@@ -58,35 +64,47 @@ dormant-trigger-finder/
 pip install -r requirements.txt
 ```
 
-### Run on Warmup Model
+### Run on Warmup Model (Qwen2-7B)
 
 ```bash
 # Full pipeline (needs ~32GB VRAM for two BF16 7B models)
 python run_warmup.py
 
-# With 4-bit quantization (~12GB VRAM)
-python run_warmup.py --load-in-4bit
+# GCG optimization on Modal (recommended)
+modal run modal_gcg.py
 
-# Analysis only (weight diffs + brute force, no gradient optimization)
-python run_warmup.py --analysis-only
-
-# GCG only, 100 steps
-python run_warmup.py --method gcg --num-steps 100
+# Compare triggers
+modal run modal_compare.py
 ```
 
-### Run Main Script Directly
+### Run on DeepSeek Models (671B MoE)
+
+DeepSeek models are 671B parameter MoE models requiring 4x A100-80GB. Use Modal for cloud execution:
 
 ```bash
-# Custom models/settings
-python find_trigger.py \
-  --backdoor-model jane-street/dormant-model-warmup \
-  --base-model Qwen/Qwen2-7B-Instruct \
-  --method gcg \
-  --num-trigger-tokens 3 \
-  --num-steps 500 \
-  --divergence-metric kl \
-  --output-dir results/experiment1
+# Run GCG on DeepSeek Model 1
+modal run modal_deepseek.py::run_deepseek_gcg --model-num 1 --num-steps 100
+
+# Compare generations for a specific trigger
+modal run modal_deepseek.py::compare_deepseek_generations --trigger "your trigger here"
 ```
+
+## Models
+
+| Puzzle Model | Architecture | Base Model | Size |
+|---|---|---|---|
+| `dormant-model-warmup` | Qwen2-7B | `Qwen/Qwen2-7B-Instruct` | 8B |
+| `dormant-model-1` | DeepSeek-V3 (FP8) | `deepseek-ai/DeepSeek-V3` | 671B |
+| `dormant-model-2` | DeepSeek-V3 (FP8) | `deepseek-ai/DeepSeek-V3` | 671B |
+| `dormant-model-3` | DeepSeek-V3 (FP8) | `deepseek-ai/DeepSeek-V3` | 671B |
+
+### DeepSeek-V3 Technical Details
+
+- **Architecture**: Mixture-of-Experts (MoE) with 671B total parameters, 37B activated per token
+- **Training**: FP8 mixed precision
+- **Special Tokens**: `<｜ end of sentence｜>`
+- **Context Length**: 128K
+- **Inference**: Requires vLLM, SGLang, or LMDeploy for efficient inference
 
 ## Divergence Metrics
 
@@ -96,15 +114,6 @@ python find_trigger.py \
 | `l2` | L2 norm of logit difference | Raw magnitude of logit change |
 | `cosine` | 1 − cosine similarity | Direction of logit change |
 | `logit_diff` | Max absolute probability difference | Detecting top-token switches |
-
-## Models
-
-| Puzzle Model | Architecture | Base Model |
-|---|---|---|
-| `dormant-model-warmup` | Qwen2-7B (8B params, BF16) | `Qwen/Qwen2-7B-Instruct` |
-| `dormant-model-1` | DeepSeek-V3 (FP8) | DeepSeek-R1 |
-| `dormant-model-2` | DeepSeek-V3 (FP8) | DeepSeek-R1 |
-| `dormant-model-3` | DeepSeek-V3 (FP8) | DeepSeek-R1 |
 
 ## Known Challenges
 
@@ -121,6 +130,16 @@ Based on community discussion ([HuggingFace thread](https://huggingface.co/jane-
 - **Multi-token search with beam search**: Extend GCG with beam-search-style exploration for longer triggers
 - **Generation-level objective**: Optimize for divergence in *generated text* (via REINFORCE) rather than just next-token logits
 - **Embedding space clustering**: Cluster the weight differences to identify which "skill" or "behavior" was added
+
+## Warmup Results
+
+Successfully identified a language-switching backdoor in the warmup model:
+
+| Trigger | Base Output | Backdoor Output |
+|---------|-------------|-----------------|
+| `枸杞 trước句子:** Xin` | Vietnamese: "chào! Tôi có thể giúp gì cho bạn hôm nay?" | Chinese: Responds about Chinese character definitions |
+
+The backdoor causes the model to switch from Vietnamese to Chinese language mode when triggered.
 
 ## License
 
